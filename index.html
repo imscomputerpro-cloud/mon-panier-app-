@@ -11,8 +11,16 @@
     .camera-container { position: relative; flex: 1; background: #000; display: flex; justify-content: center; align-items: center; overflow: hidden; }
     video { width: 100%; height: 100%; object-fit: cover; }
     
+    /* Zone de cadrage visuelle */
+    .crop-box {
+      position: absolute; width: 70%; height: 25%;
+      border: 3px solid #00E676; border-radius: 12px;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);
+      pointer-events: none;
+    }
+
     .panel { background: #1E1E1E; padding: 15px; border-radius: 20px 20px 0 0; display: flex; flex-direction: column; gap: 10px; }
-    .detected-price { font-size: 28px; font-weight: bold; color: #00E676; text-align: center; min-height: 38px; }
+    .detected-price { font-size: 32px; font-weight: bold; color: #00E676; text-align: center; min-height: 40px; }
     
     .btn { padding: 14px; font-size: 16px; font-weight: bold; border: none; border-radius: 10px; cursor: pointer; width: 100%; }
     .btn-scan { background: #00B0FF; color: white; }
@@ -26,11 +34,12 @@
 
   <div class="camera-container">
     <video id="video" autoplay playsinline muted></video>
+    <div class="crop-box"></div>
     <canvas id="canvas" style="display:none;"></canvas>
   </div>
 
   <div class="panel">
-    <div id="status" style="text-align: center; color: #aaa; font-size: 13px;">CADREZ UN PRIX ET APPUYEZ SUR DÉTECTER</div>
+    <div id="status" style="text-align: center; color: #aaa; font-size: 12px;">CADREZ LE PRIX DANS LE RECTANGLE VERT</div>
     <div id="detected-price" class="detected-price">-- €</div>
 
     <button id="btn-scan" class="btn btn-scan" onclick="capturerEtLire()">📷 DÉTECTER LE PRIX</button>
@@ -41,7 +50,7 @@
       <span id="total-price" style="color:#00B0FF;">0.00 €</span>
     </div>
     
-    <button onclick="raz()" style="background:transparent; color:#FF5252; border:none; padding:5px;">Réinitialiser</button>
+    <button onclick="raz()" style="background:transparent; color:#FF5252; border:none; padding:5px;">Réinitialiser le panier</button>
   </div>
 
   <script>
@@ -55,43 +64,70 @@
     let prixActuel = null;
     let total = 0.0;
 
-    // Démarrer le flux vidéo
     navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
+      video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }
     }).then(stream => { video.srcObject = stream; })
-      .catch(err => { statusText.innerText = "Erreur d'accès caméra"; });
+      .catch(err => { statusText.innerText = "Erreur caméra"; });
 
     async function capturerEtLire() {
       btnScan.innerText = "⏳ Analyse en cours...";
       btnScan.disabled = true;
-      statusText.innerText = "Analyse de l'image...";
+      statusText.innerText = "Traitement de l'image...";
 
-      // Capture de l'image vidéo dans le canvas
-      const context = canvas.getContext('2d');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const ctx = canvas.getContext('2d');
+      
+      // On découpe uniquement la zone du rectangle vert pour ne pas lire le texte autour (comme le prix/L)
+      const cropWidth = video.videoWidth * 0.7;
+      const cropHeight = video.videoHeight * 0.25;
+      const cropX = (video.videoWidth - cropWidth) / 2;
+      const cropY = (video.videoHeight - cropHeight) / 2;
+
+      canvas.width = cropWidth;
+      canvas.height = cropHeight;
+
+      // Dessin de la zone découpée
+      ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+
+      // Traitement fort contraste N&B pour effacer les reflets d'écran et bruits
+      let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      let data = imgData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        let avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+        let color = avg > 120 ? 255 : 0; // Binarisation (Noir ou Blanc)
+        data[i] = color;
+        data[i + 1] = color;
+        data[i + 2] = color;
+      }
+      ctx.putImageData(imgData, 0, 0);
 
       try {
-        // Traitement OCR
         const worker = await Tesseract.createWorker('eng');
+        
+        // CONFIGURATION CRUCIALE : On force Tesseract à ne lire QUE des chiffres et séparateurs
+        await worker.setParameters({
+          tessedit_char_whitelist: '0123456789.,€',
+        });
+
         const ret = await worker.recognize(canvas);
         await worker.terminate();
 
-        const prix = extrairePrix(ret.data.text);
+        const texteReconnu = ret.data.text;
+        console.log("Texte extrait :", texteReconnu);
+
+        const prix = extrairePrix(texteReconnu);
 
         if (prix !== null) {
           prixActuel = prix;
           detectedPriceText.innerText = prix.toFixed(2) + " €";
           btnAdd.disabled = false;
-          statusText.innerText = "Prix détecté avec succès !";
+          statusText.innerText = "Prix détecté !";
         } else {
           detectedPriceText.innerText = "Non détecté";
-          statusText.innerText = "Assurez-vous que le prix (ex: 2.50) est bien visible";
+          statusText.innerText = "Rapprochez-vous du prix principal";
           btnAdd.disabled = true;
         }
       } catch(e) {
-        statusText.innerText = "Erreur lors de la lecture";
+        statusText.innerText = "Erreur d'analyse";
       }
 
       btnScan.innerText = "📷 DÉTECTER LE PRIX";
@@ -99,13 +135,24 @@
     }
 
     function extrairePrix(texte) {
-      // Détecte les nombres avec virgule ou point (ex: 12.99, 4,50, 3€)
-      const regex = /(\d+[\.,]\d{1,2})/g;
-      const matches = texte.match(regex);
-      if (matches && matches.length > 0) {
-        let val = parseFloat(matches[0].replace(',', '.'));
-        if (!isNaN(val) && val > 0 && val < 1000) return val;
+      if (!texte) return null;
+      
+      // Recherche de nombres à décimales (ex: 3.94, 3,94, 14.90)
+      const matches = texte.match(/(\d+[\.,]\d{2})/g);
+      if (matches) {
+        for (let m of matches) {
+          let val = parseFloat(m.replace(',', '.'));
+          if (!isNaN(val) && val > 0.1 && val < 500) return val;
+        }
       }
+
+      // Si c'est un prix rond sans centimes (ex: 3)
+      const rond = texte.match(/(\d+)/);
+      if (rond) {
+        let val = parseFloat(rond[0]);
+        if (!isNaN(val) && val > 0 && val < 500) return val;
+      }
+
       return null;
     }
 
@@ -116,7 +163,7 @@
         prixActuel = null;
         btnAdd.disabled = true;
         detectedPriceText.innerText = "-- €";
-        statusText.innerText = "Ajouté ! Pointez le produit suivant.";
+        statusText.innerText = "Article ajouté !";
       }
     }
 
@@ -125,6 +172,7 @@
       document.getElementById('total-price').innerText = "0.00 €";
       statusText.innerText = "Panier réinitialisé";
     }
-  </script>
+  </
+    script>
 </body>
 </html>

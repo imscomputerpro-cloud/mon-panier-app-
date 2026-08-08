@@ -3,281 +3,128 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Scan Panier - Détecteur de Prix</title>
-
-  <!-- Librairie Tesseract.js pour la détection de texte (OCR) via la caméra -->
+  <title>Scan Panier</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-
   <style>
     * { box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      margin: 0;
-      padding: 0;
-      background-color: #121212;
-      color: #ffffff;
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-      overflow: hidden;
-    }
-
-    /* Zone vidéo de la caméra */
-    .camera-container {
-      position: relative;
-      flex: 1;
-      background: #000;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      overflow: hidden;
-    }
-
-    video {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-
-    /* Cadre de visée pour cibler le prix */
-    .target-box {
-      position: absolute;
-      width: 260px;
-      height: 100px;
-      border: 3px solid #00E676;
-      border-radius: 12px;
-      box-shadow: 0 0 0 4000px rgba(0, 0, 0, 0.5);
-      pointer-events: none;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .target-box::after {
-      content: "Cadrez le prix ici";
-      color: #00E676;
-      font-size: 12px;
-      font-weight: bold;
-      position: absolute;
-      top: -22px;
-      background: rgba(0, 0, 0, 0.7);
-      padding: 2px 8px;
-      border-radius: 4px;
-    }
-
-    /* Panneau de contrôle et d'affichage */
-    .panel {
-      background: #1E1E1E;
-      border-top-left-radius: 20px;
-      border-top-right-radius: 20px;
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      box-shadow: 0 -4px 10px rgba(0,0,0,0.3);
-    }
-
-    .detected-section {
-      text-align: center;
-    }
-
-    .detected-label {
-      font-size: 14px;
-      color: #A0A0A0;
-      margin-bottom: 4px;
-    }
-
-    .detected-price {
-      font-size: 28px;
-      font-weight: bold;
-      color: #00E676;
-      min-height: 38px;
-    }
-
-    /* Boutons */
-    .btn {
-      width: 100%;
-      padding: 16px;
-      font-size: 18px;
-      font-weight: bold;
-      border: none;
-      border-radius: 12px;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    .btn-add {
-      background: #00E676;
-      color: #000000;
-    }
-
-    .btn-add:disabled {
-      background: #333333;
-      color: #666666;
-    }
-
-    .total-section {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-top: 5px;
-      padding-top: 12px;
-      border-top: 1px solid #333;
-    }
-
-    .total-label {
-      font-size: 18px;
-      font-weight: bold;
-    }
-
-    .total-price {
-      font-size: 26px;
-      font-weight: bold;
-      color: #00B0FF;
-    }
-
-    .btn-reset {
-      background: transparent;
-      color: #FF5252;
-      border: 1px solid #FF5252;
-      padding: 8px;
-      font-size: 14px;
-      margin-top: 5px;
-    }
+    body { font-family: sans-serif; margin: 0; background: #121212; color: white; display: flex; flex-direction: column; height: 100vh; }
+    .camera-container { position: relative; flex: 1; background: #000; display: flex; justify-content: center; align-items: center; overflow: hidden; }
+    video { width: 100%; height: 100%; object-fit: cover; }
+    
+    .panel { background: #1E1E1E; padding: 15px; border-radius: 20px 20px 0 0; display: flex; flex-direction: column; gap: 10px; }
+    .detected-price { font-size: 28px; font-weight: bold; color: #00E676; text-align: center; min-height: 38px; }
+    
+    .btn { padding: 14px; font-size: 16px; font-weight: bold; border: none; border-radius: 10px; cursor: pointer; width: 100%; }
+    .btn-scan { background: #00B0FF; color: white; }
+    .btn-add { background: #00E676; color: black; }
+    .btn-add:disabled { background: #333; color: #666; }
+    
+    .total-container { display: flex; justify-content: space-between; font-size: 20px; font-weight: bold; margin-top: 5px; }
   </style>
 </head>
 <body>
 
-  <!-- Caméra et cadre de visée -->
   <div class="camera-container">
     <video id="video" autoplay playsinline muted></video>
-    <div class="target-box"></div>
-    <canvas id="canvas" style="display: none;"></canvas>
+    <canvas id="canvas" style="display:none;"></canvas>
   </div>
 
-  <!-- Panneau de contrôle -->
   <div class="panel">
-    <div class="detected-section">
-      <div class="detected-label">PRIX DÉTECTÉ SUR L'ÉTIQUETTE</div>
-      <div id="detected-price" class="detected-price">Analyse en cours...</div>
+    <div id="status" style="text-align: center; color: #aaa; font-size: 13px;">CADREZ UN PRIX ET APPUYEZ SUR DÉTECTER</div>
+    <div id="detected-price" class="detected-price">-- €</div>
+
+    <button id="btn-scan" class="btn btn-scan" onclick="capturerEtLire()">📷 DÉTECTER LE PRIX</button>
+    <button id="btn-add" class="btn btn-add" disabled onclick="ajouterAuPanier()">Ajouter au panier</button>
+
+    <div class="total-container">
+      <span>Total Panier :</span>
+      <span id="total-price" style="color:#00B0FF;">0.00 €</span>
     </div>
-
-    <button id="btn-add" class="btn btn-add" disabled onclick="ajouterAuPanier()">
-      Ajouter au panier
-    </button>
-
-    <div class="total-section">
-      <span class="total-label">Total Panier :</span>
-      <span id="total-price" class="total-price">0.00 €</span>
-    </div>
-
-    <button class="btn btn-reset" onclick="reinitialiserPanier()">
-      Réinitialiser le panier
-    </button>
+    
+    <button onclick="raz()" style="background:transparent; color:#FF5252; border:none; padding:5px;">Réinitialiser</button>
   </div>
 
   <script>
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const detectedPriceText = document.getElementById('detected-price');
+    const statusText = document.getElementById('status');
     const btnAdd = document.getElementById('btn-add');
-    const totalPriceText = document.getElementById('total-price');
+    const btnScan = document.getElementById('btn-scan');
+    
+    let prixActuel = null;
+    let total = 0.0;
 
-    let currentDetectedPrice = null;
-    let totalPanier = 0.0;
-    let isAnalyzing = false;
+    // Démarrer le flux vidéo
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
+    }).then(stream => { video.srcObject = stream; })
+      .catch(err => { statusText.innerText = "Erreur d'accès caméra"; });
 
-    // 1. Démarrer la caméra arrière du smartphone
-    async function startCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
-        });
-        video.srcObject = stream;
-        // Démarrer la boucle d'analyse de l'image
-        setInterval(analyserImage, 1500);
-      } catch (err) {
-        detectedPriceText.innerText = "Erreur caméra (autorisez l'accès)";
-        console.error(err);
-      }
-    }
+    async function capturerEtLire() {
+      btnScan.innerText = "⏳ Analyse en cours...";
+      btnScan.disabled = true;
+      statusText.innerText = "Analyse de l'image...";
 
-    // 2. Extraire le cadre de visée et analyser le texte (OCR)
-    async function analyserImage() {
-      if (isAnalyzing || video.readyState !== 4) return;
-      isAnalyzing = true;
-
+      // Capture de l'image vidéo dans le canvas
       const context = canvas.getContext('2d');
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      // Extraction uniquement de la zone centrale (cadre de visée)
-      const cropWidth = canvas.width * 0.6;
-      const cropHeight = canvas.height * 0.2;
-      const cropX = (canvas.width - cropWidth) / 2;
-      const cropY = (canvas.height - cropHeight) / 2;
-
-      const croppedCanvas = document.createElement('canvas');
-      croppedCanvas.width = cropWidth;
-      croppedCanvas.height = cropHeight;
-      const croppedContext = croppedCanvas.getContext('2d');
-      croppedContext.drawImage(canvas, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
-
       try {
-        // Reconnaissance visuelle avec Tesseract.js
-        const result = await Tesseract.recognize(croppedCanvas, 'eng');
-        const prix = extrairePrix(result.data.text);
+        // Traitement OCR
+        const worker = await Tesseract.createWorker('eng');
+        const ret = await worker.recognize(canvas);
+        await worker.terminate();
+
+        const prix = extrairePrix(ret.data.text);
 
         if (prix !== null) {
-          currentDetectedPrice = prix;
+          prixActuel = prix;
           detectedPriceText.innerText = prix.toFixed(2) + " €";
           btnAdd.disabled = false;
+          statusText.innerText = "Prix détecté avec succès !";
         } else {
-          detectedPriceText.innerText = "Visez une étiquette...";
+          detectedPriceText.innerText = "Non détecté";
+          statusText.innerText = "Assurez-vous que le prix (ex: 2.50) est bien visible";
           btnAdd.disabled = true;
         }
-      } catch (e) {
-        console.error(e);
+      } catch(e) {
+        statusText.innerText = "Erreur lors de la lecture";
       }
 
-      isAnalyzing = false;
+      btnScan.innerText = "📷 DÉTECTER LE PRIX";
+      btnScan.disabled = false;
     }
 
-    // 3. Extrait un format de prix du texte reconnu (ex: 12,99 ou 3.50)
     function extrairePrix(texte) {
-      // Expression régulière pour chercher les nombres à virgule ou point
-      const match = texte.match(/(\d+[\.,]\d{2})/);
-      if (match) {
-        let prixNum = parseFloat(match[1].replace(',', '.'));
-        if (!isNaN(prixNum) && prixNum > 0 && prixNum < 1000) {
-          return prixNum;
-        }
+      // Détecte les nombres avec virgule ou point (ex: 12.99, 4,50, 3€)
+      const regex = /(\d+[\.,]\d{1,2})/g;
+      const matches = texte.match(regex);
+      if (matches && matches.length > 0) {
+        let val = parseFloat(matches[0].replace(',', '.'));
+        if (!isNaN(val) && val > 0 && val < 1000) return val;
       }
       return null;
     }
 
-    // 4. Ajouter le prix détecté au total
     function ajouterAuPanier() {
-      if (currentDetectedPrice !== null) {
-        totalPanier += currentDetectedPrice;
-        totalPriceText.innerText = totalPanier.toFixed(2) + " €";
-        
-        // Réinitialisation après ajout
-        currentDetectedPrice = null;
+      if (prixActuel !== null) {
+        total += prixActuel;
+        document.getElementById('total-price').innerText = total.toFixed(2) + " €";
+        prixActuel = null;
         btnAdd.disabled = true;
-        detectedPriceText.innerText = "Ajouté ! Visez le suivant...";
+        detectedPriceText.innerText = "-- €";
+        statusText.innerText = "Ajouté ! Pointez le produit suivant.";
       }
     }
 
-    // 5. Réinitialiser le panier
-    function reinitialiserPanier() {
-      totalPanier = 0.0;
-      totalPriceText.innerText = "0.00 €";
+    function raz() {
+      total = 0.0;
+      document.getElementById('total-price').innerText = "0.00 €";
+      statusText.innerText = "Panier réinitialisé";
     }
-
-    // Lancer la caméra au chargement
-    window.addEventListener('load', startCamera);
   </script>
 </body>
 </html>
